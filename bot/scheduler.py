@@ -13,18 +13,14 @@ logger = logging.getLogger(__name__)
 MSK = pytz.timezone("Europe/Moscow")
 
 
-async def _send_batch(bot, recipients: list, text: str, parse_mode: str = "HTML",
-                      batch_size: int = 25, delay: float = 1.0):
-    """Send a message to a list of chat_ids in batches to avoid Telegram rate limits."""
-    for i in range(0, len(recipients), batch_size):
-        batch = recipients[i:i + batch_size]
-        for chat_id in batch:
-            try:
-                await bot.send_message(chat_id, text, parse_mode=parse_mode)
-            except Exception as e:
-                logger.warning(f"Could not send to {chat_id}: {e}")
-        if i + batch_size < len(recipients):
-            await asyncio.sleep(delay)
+async def _send_batch(bot, recipients: list, text: str, parse_mode: str = "HTML"):
+    """Sequential send with small delay to avoid flood control."""
+    for chat_id in recipients:
+        try:
+            await bot.send_message(chat_id, text, parse_mode=parse_mode)
+        except Exception as e:
+            logger.warning(f"Could not send to {chat_id}: {e}")
+        await asyncio.sleep(0.05)
 
 
 class Scheduler:
