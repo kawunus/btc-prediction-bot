@@ -21,6 +21,8 @@ class Database:
             charset="utf8mb4",
             minsize=1,
             maxsize=5,
+            echo=False,
+            pool_recycle=3600,  # recycle connections every hour
         )
 
     async def close(self):
@@ -28,8 +30,12 @@ class Database:
             self._pool.close()
             await self._pool.wait_closed()
 
+    def _acquire(self):
+        """Context manager that returns a connection with ping to handle stale connections."""
+        return _PingConnection(self._pool)
+
     async def init_schema(self):
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS rounds (
@@ -62,20 +68,16 @@ class Database:
     # --- Rounds ---
 
     async def create_round(self, target_time: str, target_datetime, chat_id: int = None) -> int:
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    """
-                    INSERT INTO rounds (chat_id, target_time, target_datetime)
-                    VALUES (%s, %s, %s)
-                    """,
+                    "INSERT INTO rounds (chat_id, target_time, target_datetime) VALUES (%s, %s, %s)",
                     (chat_id, target_time, target_datetime),
                 )
                 return cur.lastrowid
 
     async def get_global_active_round(self):
-        """Return the currently active global round (chat_id is NULL)."""
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
                     "SELECT * FROM rounds WHERE chat_id IS NULL AND is_active = 1 ORDER BY id DESC LIMIT 1"
@@ -83,14 +85,14 @@ class Database:
                 return await cur.fetchone()
 
     async def get_round_by_id(self, round_id: int):
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute("SELECT * FROM rounds WHERE id = %s", (round_id,))
                 return await cur.fetchone()
 
     async def close_round(self, round_id: int, actual_price: float,
                           winner_user_id: int, winner_username: str, winner_guess: float):
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
                     """
@@ -106,27 +108,21 @@ class Database:
                 )
 
     async def deactivate_round(self, round_id: int):
-        """Close round without winner (no guesses)."""
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE rounds SET is_active = 0 WHERE id = %s",
-                    (round_id,),
+                    "UPDATE rounds SET is_active = 0 WHERE id = %s", (round_id,)
                 )
 
     # --- Guesses ---
 
     async def add_guess(self, round_id: int, user_id: int, username: str,
                         first_name: str, guess: float) -> bool:
-        """Returns True if inserted, False if user already guessed."""
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        """
-                        INSERT INTO guesses (round_id, user_id, username, first_name, guess)
-                        VALUES (%s, %s, %s, %s, %s)
-                        """,
+                        "INSERT INTO guesses (round_id, user_id, username, first_name, guess) VALUES (%s, %s, %s, %s, %s)",
                         (round_id, user_id, username, first_name, guess),
                     )
                     return True
@@ -134,17 +130,36 @@ class Database:
                     return False
 
     async def get_guesses(self, round_id: int):
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT * FROM guesses WHERE round_id = %s",
-                    (round_id,),
+                    "SELECT * FROM guesses WHERE round_id = %s", (round_id,)
                 )
                 return await cur.fetchall()
 
     async def get_all_active_rounds(self):
-        """Get all active global rounds (should be 0 or 1)."""
-        async with self._pool.acquire() as conn:
+        async with self._acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute("SELECT * FROM rounds WHERE is_active = 1 AND chat_id IS NULL")
+                await cur.execute(
+                    "SELECT * FROM rounds WHERE is_active = 1 AND chat_id IS NULL"
+                )
                 return await cur.fetchall()
+
+
+class _PingConnection:
+    """Wraps pool.acquire() and pings the connection before use."""
+
+    def __init__(self, pool):
+        self._pool = pool
+        self._conn = None
+
+    async def __aenter__(self):
+        self._conn = await self._pool.acquire()
+        try:
+            await self._conn.ping(reconnect=True)
+        except Exception:
+            pass
+        return self._conn
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._pool.release(self._conn)

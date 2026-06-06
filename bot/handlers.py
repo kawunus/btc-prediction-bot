@@ -199,14 +199,17 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if price is None:
             return
 
+        is_private = message.chat.type == "private"
+
         # Always use the global active round
         active = await db.get_global_active_round()
         if not active:
-            # No active round — gentle reminder
-            await message.reply(
-                "Сейчас нет активного раунда 🤷\n"
-                "Когда админ запустит игру, просто отправь сюда число."
-            )
+            # In private — tell user there's no round. In groups — stay silent.
+            if is_private:
+                await message.reply(
+                    "Сейчас нет активного раунда 🤷\n"
+                    "Когда админ запустит игру, просто отправь сюда число."
+                )
             return
 
         success = await db.add_guess(
