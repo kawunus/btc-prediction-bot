@@ -89,12 +89,28 @@ def register_handlers(dp: Dispatcher, db, scheduler):
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
-        if not _is_admin(message.from_user.id):
-            return
-
         if message.chat.type in ("group", "supergroup"):
             await db.register_chat(message.chat.id, message.chat.title or "")
 
+        # Обычный пользователь в личке — приветствие
+        if not _is_admin(message.from_user.id):
+            if message.chat.type == "private":
+                active = await db.get_global_active_round()
+                if active:
+                    await message.reply(
+                        f"Привет! 🎯 Сейчас идёт раунд ставок до <b>{active['target_time']} МСК</b>.\n\n"
+                        "Отправь мне цену BTC, которую прогнозируешь на это время.\n"
+                        "Например: <code>98500</code>",
+                        parse_mode="HTML",
+                    )
+                else:
+                    await message.reply(
+                        "Привет! 👋 Сейчас нет активного раунда.\n"
+                        "Как только ведущий объявит о начале игры — просто отправь сюда своё число."
+                    )
+            return
+
+        # Админ — запускаем раунд
         args = (message.text or "").split(maxsplit=1)
         if len(args) < 2:
             await message.reply("Укажи время: /start HH:MM\nПример: /start 16:00")
