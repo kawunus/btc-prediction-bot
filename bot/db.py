@@ -80,7 +80,7 @@ class Database:
         async with self._acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT * FROM rounds WHERE chat_id IS NULL AND is_active = 1 ORDER BY id DESC LIMIT 1"
+                    "SELECT * FROM rounds WHERE is_active = 1 ORDER BY id DESC LIMIT 1"
                 )
                 return await cur.fetchone()
 
@@ -141,7 +141,7 @@ class Database:
         async with self._acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT * FROM rounds WHERE is_active = 1 AND chat_id IS NULL"
+                    "SELECT * FROM rounds WHERE is_active = 1"
                 )
                 return await cur.fetchall()
 

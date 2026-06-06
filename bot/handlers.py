@@ -116,7 +116,7 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         time_str = f"{hour:02d}:{minute:02d}"
 
         # Create global round (chat_id = NULL)
-        round_id = await db.create_round(time_str, target_dt)
+        round_id = await db.create_round(time_str, target_dt, chat_id=message.chat.id)
         scheduler.schedule_round_end(round_id, target_dt)
 
         await message.reply(

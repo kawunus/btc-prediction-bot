@@ -80,30 +80,38 @@ class Scheduler:
             float(winner["guess"]),
         )
 
-        # Build personal results for each participant
+        # Build results message (same text for group and personal DMs)
+        lines = []
+        for i, g in enumerate(sorted_guesses[:5], 1):
+            name = f"@{g['username']}" if g["username"] else g["first_name"] or "???"
+            delta = abs(float(g["guess"]) - actual_price)
+            medal = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
+            lines.append(f"{medal} {name} — ${float(g['guess']):,.2f} (±${delta:,.2f})")
+        results_text = "\n".join(lines)
+        total = len(guesses)
+        suffix = f"\n<i>...и ещё {total - 5} участников</i>" if total > 5 else ""
+
+        text = (
+            f"⏰ Время подошло к концу — <b>{target_time} МСК</b>.\n"
+            f"💰 Реальная цена BTC: <b>${actual_price:,.2f}</b>\n\n"
+            f"🏆 Победитель: {display_name}\n"
+            f"    Ставка: <b>${float(winner['guess']):,.2f}</b> — промахнулся на ${diff:,.2f}\n\n"
+            f"📊 Топ-5 ставок:\n{results_text}{suffix}"
+        )
+
+        # Send to the group chat where /start was issued
+        origin_chat_id = round_.get("chat_id")
+        if origin_chat_id:
+            try:
+                await self.bot.send_message(origin_chat_id, text, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Could not send results to chat {origin_chat_id}: {e}")
+
+        # Send personally to every participant
         for guess in guesses:
             user_id = guess["user_id"]
             try:
-                lines = []
-                for i, g in enumerate(sorted_guesses[:5], 1):
-                    name = f"@{g['username']}" if g["username"] else g["first_name"] or "???"
-                    delta = abs(float(g["guess"]) - actual_price)
-                    medal = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
-                    lines.append(f"{medal} {name} — ${float(g['guess']):,.2f} (±${delta:,.2f})")
-                results_text = "\n".join(lines)
-
-                total = len(guesses)
-                suffix = f"\n<i>...и ещё {total - 5} участников</i>" if total > 5 else ""
-
-                await self.bot.send_message(
-                    user_id,
-                    f"⏰ Время подошло к концу — <b>{target_time} МСК</b>.\n"
-                    f"💰 Реальная цена BTC: <b>${actual_price:,.2f}</b>\n\n"
-                    f"🏆 Победитель: {display_name}\n"
-                    f"    Ставка: <b>${float(winner['guess']):,.2f}</b> — промахнулся на ${diff:,.2f}\n\n"
-                    f"📊 Топ-5 ставок:\n{results_text}{suffix}",
-                    parse_mode="HTML",
-                )
+                await self.bot.send_message(user_id, text, parse_mode="HTML")
             except Exception as e:
                 logger.warning(f"Could not send results to {user_id}: {e}")
                 continue
