@@ -64,6 +64,13 @@ class Database:
                         FOREIGN KEY (round_id) REFERENCES rounds(id)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS known_chats (
+                        chat_id BIGINT PRIMARY KEY,
+                        title VARCHAR(255),
+                        added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                """)
 
     # --- Rounds ---
 
@@ -144,6 +151,28 @@ class Database:
                     "SELECT * FROM rounds WHERE is_active = 1"
                 )
                 return await cur.fetchall()
+
+    # --- Known chats ---
+
+    async def register_chat(self, chat_id: int, title: str):
+        """Save group chat so we know where to broadcast results."""
+        async with self._acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO known_chats (chat_id, title)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE title = VALUES(title)
+                    """,
+                    (chat_id, title or ""),
+                )
+
+    async def get_all_chats(self) -> list:
+        async with self._acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute("SELECT chat_id FROM known_chats")
+                rows = await cur.fetchall()
+                return [r["chat_id"] for r in rows]
 
 
 class _PingConnection:

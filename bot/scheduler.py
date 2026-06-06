@@ -99,22 +99,25 @@ class Scheduler:
             f"📊 Топ-5 ставок:\n{results_text}{suffix}"
         )
 
-        # Send to the group chat where /start was issued
-        origin_chat_id = round_.get("chat_id")
-        if origin_chat_id:
+        # Send to all known group chats
+        group_chats = await self.db.get_all_chats()
+        for chat_id in group_chats:
             try:
-                await self.bot.send_message(origin_chat_id, text, parse_mode="HTML")
+                await self.bot.send_message(chat_id, text, parse_mode="HTML")
             except Exception as e:
-                logger.warning(f"Could not send results to chat {origin_chat_id}: {e}")
+                logger.warning(f"Could not send results to chat {chat_id}: {e}")
 
         # Send personally to every participant
+        sent_users = set(group_chats)  # avoid double-sending if user is somehow in list
         for guess in guesses:
             user_id = guess["user_id"]
+            if user_id in sent_users:
+                continue
             try:
                 await self.bot.send_message(user_id, text, parse_mode="HTML")
             except Exception as e:
-                logger.warning(f"Could not send results to {user_id}: {e}")
-                continue
+                logger.warning(f"Could not send results to user {user_id}: {e}")
+            sent_users.add(user_id)
 
     async def reschedule_active_rounds(self):
         """Re-schedule jobs for active rounds after bot restart."""

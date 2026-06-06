@@ -92,6 +92,9 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if not _is_admin(message.from_user.id):
             return
 
+        if message.chat.type in ("group", "supergroup"):
+            await db.register_chat(message.chat.id, message.chat.title or "")
+
         args = (message.text or "").split(maxsplit=1)
         if len(args) < 2:
             await message.reply("Укажи время: /start HH:MM\nПример: /start 16:00")
@@ -194,6 +197,10 @@ def register_handlers(dp: Dispatcher, db, scheduler):
 
         if text.startswith("/"):
             return
+
+        # Register group chat so we can broadcast results to it
+        if message.chat.type in ("group", "supergroup"):
+            await db.register_chat(message.chat.id, message.chat.title or "")
 
         price = _parse_price(text)
         if price is None:
