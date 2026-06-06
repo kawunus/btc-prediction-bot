@@ -122,23 +122,11 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         round_id = await db.create_round(time_str, target_dt, chat_id=message.chat.id)
         scheduler.schedule_round_end(round_id, target_dt)
 
-        announce = (
+        await message.reply(
             f"🎯 Ставки открыты! Угадай цену BTC ровно в <b>{time_str} МСК</b>.\n\n"
-            "Просто напиши число — в любой чат с ботом или в личку.\n"
-            "Одна попытка, менять нельзя. Удачи 🍀"
+            "Напиши своё число в личку боту — одна попытка, менять нельзя. Удачи 🍀",
+            parse_mode="HTML",
         )
-
-        # Broadcast to all known group chats
-        known_chats = await db.get_all_chats()
-        for cid in known_chats:
-            try:
-                await message.bot.send_message(cid, announce, parse_mode="HTML")
-            except Exception:
-                pass
-
-        # If started from private or chat not in list yet — reply directly
-        if message.chat.id not in known_chats:
-            await message.reply(announce, parse_mode="HTML")
 
     # ── /cancel ────────────────────────────────────────────────────────────────
 

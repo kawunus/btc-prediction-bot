@@ -13,6 +13,20 @@ logger = logging.getLogger(__name__)
 MSK = pytz.timezone("Europe/Moscow")
 
 
+async def _send_batch(bot, recipients: list, text: str, parse_mode: str = "HTML",
+                      batch_size: int = 25, delay: float = 1.0):
+    """Send a message to a list of chat_ids in batches to avoid Telegram rate limits."""
+    for i in range(0, len(recipients), batch_size):
+        batch = recipients[i:i + batch_size]
+        for chat_id in batch:
+            try:
+                await bot.send_message(chat_id, text, parse_mode=parse_mode)
+            except Exception as e:
+                logger.warning(f"Could not send to {chat_id}: {e}")
+        if i + batch_size < len(recipients):
+            await asyncio.sleep(delay)
+
+
 class Scheduler:
     def __init__(self, bot, db):
         self.bot = bot
@@ -99,25 +113,17 @@ class Scheduler:
             f"📊 Топ-10 ставок:\n{results_text}{suffix}"
         )
 
-        # Send to all known group chats
+        # Collect all recipients: group chats + individual participants
         group_chats = await self.db.get_all_chats()
-        for chat_id in group_chats:
-            try:
-                await self.bot.send_message(chat_id, text, parse_mode="HTML")
-            except Exception as e:
-                logger.warning(f"Could not send results to chat {chat_id}: {e}")
+        group_chats_set = set(group_chats)
 
-        # Send personally to every participant
-        sent_users = set(group_chats)  # avoid double-sending if user is somehow in list
-        for guess in guesses:
-            user_id = guess["user_id"]
-            if user_id in sent_users:
-                continue
-            try:
-                await self.bot.send_message(user_id, text, parse_mode="HTML")
-            except Exception as e:
-                logger.warning(f"Could not send results to user {user_id}: {e}")
-            sent_users.add(user_id)
+        participants = [
+            g["user_id"] for g in guesses
+            if g["user_id"] not in group_chats_set
+        ]
+
+        all_recipients = group_chats + participants
+        await _send_batch(self.bot, all_recipients, text)
 
     async def reschedule_active_rounds(self):
         """Re-schedule jobs for active rounds after bot restart."""
