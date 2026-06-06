@@ -122,12 +122,23 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         round_id = await db.create_round(time_str, target_dt, chat_id=message.chat.id)
         scheduler.schedule_round_end(round_id, target_dt)
 
-        await message.reply(
+        announce = (
             f"🎯 Ставки открыты! Угадай цену BTC ровно в <b>{time_str} МСК</b>.\n\n"
-            "Теперь любой участник в любом чате (где есть бот) или в личку может отправить число.\n"
-            "Одна попытка, менять нельзя. Удачи 🍀",
-            parse_mode="HTML",
+            "Просто напиши число — в любой чат с ботом или в личку.\n"
+            "Одна попытка, менять нельзя. Удачи 🍀"
         )
+
+        # Broadcast to all known group chats
+        known_chats = await db.get_all_chats()
+        for cid in known_chats:
+            try:
+                await message.bot.send_message(cid, announce, parse_mode="HTML")
+            except Exception:
+                pass
+
+        # If started from private or chat not in list yet — reply directly
+        if message.chat.id not in known_chats:
+            await message.reply(announce, parse_mode="HTML")
 
     # ── /cancel ────────────────────────────────────────────────────────────────
 
@@ -188,7 +199,7 @@ def register_handlers(dp: Dispatcher, db, scheduler):
             parse_mode="HTML",
         )
 
-    # ── Обработка ставок (любой чат или ЛС) ──────────────────────────────────────
+    # ── Обработка ставок (только личка) ──────────────────────────────────────
 
     @dp.message(F.text)
     async def handle_guess(message: Message):
@@ -198,25 +209,20 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if text.startswith("/"):
             return
 
-        # Register group chat so we can broadcast results to it
-        if message.chat.type in ("group", "supergroup"):
-            await db.register_chat(message.chat.id, message.chat.title or "")
+        # Ставки принимаются только в личке
+        if message.chat.type != "private":
+            return
 
         price = _parse_price(text)
         if price is None:
             return
 
-        is_private = message.chat.type == "private"
-
-        # Always use the global active round
         active = await db.get_global_active_round()
         if not active:
-            # In private — tell user there's no round. In groups — stay silent.
-            if is_private:
-                await message.reply(
-                    "Сейчас нет активного раунда 🤷\n"
-                    "Когда админ запустит игру, просто отправь сюда число."
-                )
+            await message.reply(
+                "Сейчас нет активного раунда 🤷\n"
+                "Когда админ запустит игру, просто отправь сюда число."
+            )
             return
 
         success = await db.add_guess(

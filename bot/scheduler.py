@@ -82,21 +82,21 @@ class Scheduler:
 
         # Build results message (same text for group and personal DMs)
         lines = []
-        for i, g in enumerate(sorted_guesses[:5], 1):
+        for i, g in enumerate(sorted_guesses[:10], 1):
             name = f"@{g['username']}" if g["username"] else g["first_name"] or "???"
             delta = abs(float(g["guess"]) - actual_price)
             medal = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
             lines.append(f"{medal} {name} — ${float(g['guess']):,.2f} (±${delta:,.2f})")
         results_text = "\n".join(lines)
         total = len(guesses)
-        suffix = f"\n<i>...и ещё {total - 5} участников</i>" if total > 5 else ""
+        suffix = f"\n<i>...и ещё {total - 10} участников</i>" if total > 10 else ""
 
         text = (
             f"⏰ Время подошло к концу — <b>{target_time} МСК</b>.\n"
             f"💰 Реальная цена BTC: <b>${actual_price:,.2f}</b>\n\n"
             f"🏆 Победитель: {display_name}\n"
             f"    Ставка: <b>${float(winner['guess']):,.2f}</b> — промахнулся на ${diff:,.2f}\n\n"
-            f"📊 Топ-5 ставок:\n{results_text}{suffix}"
+            f"📊 Топ-10 ставок:\n{results_text}{suffix}"
         )
 
         # Send to all known group chats
