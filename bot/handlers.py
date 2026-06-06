@@ -230,7 +230,8 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if success:
             display = f"@{user.username}" if user.username else user.first_name or "Участник"
             await message.reply(
-                f"✅ {display}, принято! Твоя ставка: <b>${price:,.2f}</b> 🤞",
+                f"✅ {display}, принято! Твоя ставка: <b>${price:,.2f}</b> 🤞\n"
+                f"Итоги розыгрыша в <b>{active['target_time']} МСК</b>.",
                 parse_mode="HTML",
             )
             try:
