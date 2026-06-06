@@ -46,18 +46,13 @@ class Scheduler:
             logger.info(f"Round {round_id} already closed or not found.")
             return
 
-        chat_id = round_["chat_id"]
         target_time = round_["target_time"]
 
         try:
             actual_price = await get_btc_price()
         except Exception as e:
             logger.error(f"Failed to fetch BTC price: {e}")
-            await self.bot.send_message(
-                chat_id,
-                "😬 Не удалось получить цену BTC — что-то пошло не так с биржей.\n"
-                "Раунд закрыт без результатов.",
-            )
+            # Cannot send to specific chat — just deactivate
             await self.db.deactivate_round(round_id)
             return
 
@@ -65,13 +60,6 @@ class Scheduler:
 
         if not guesses:
             await self.db.deactivate_round(round_id)
-            await self.bot.send_message(
-                chat_id,
-                f"⏰ Время подошло к концу — <b>{target_time} МСК</b>.\n"
-                f"💰 Цена BTC: <b>${actual_price:,.2f}</b>\n\n"
-                "Никто не рискнул сделать ставку 🦗",
-                parse_mode="HTML",
-            )
             return
 
         # Sort by closeness, then by submission time — earlier wins on tie
@@ -92,27 +80,33 @@ class Scheduler:
             float(winner["guess"]),
         )
 
-        # Build top-5 results table
-        lines = []
-        for i, g in enumerate(sorted_guesses[:5], 1):
-            name = f"@{g['username']}" if g["username"] else g["first_name"] or "???"
-            delta = abs(float(g["guess"]) - actual_price)
-            medal = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
-            lines.append(f"{medal} {name} — ${float(g['guess']):,.2f} (±${delta:,.2f})")
-        results_text = "\n".join(lines)
+        # Build personal results for each participant
+        for guess in guesses:
+            user_id = guess["user_id"]
+            try:
+                lines = []
+                for i, g in enumerate(sorted_guesses[:5], 1):
+                    name = f"@{g['username']}" if g["username"] else g["first_name"] or "???"
+                    delta = abs(float(g["guess"]) - actual_price)
+                    medal = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
+                    lines.append(f"{medal} {name} — ${float(g['guess']):,.2f} (±${delta:,.2f})")
+                results_text = "\n".join(lines)
 
-        total = len(guesses)
-        suffix = f"\n<i>...и ещё {total - 5} участников</i>" if total > 5 else ""
+                total = len(guesses)
+                suffix = f"\n<i>...и ещё {total - 5} участников</i>" if total > 5 else ""
 
-        await self.bot.send_message(
-            chat_id,
-            f"⏰ Время подошло к концу — <b>{target_time} МСК</b>.\n"
-            f"💰 Реальная цена BTC: <b>${actual_price:,.2f}</b>\n\n"
-            f"🏆 Победитель: {display_name}\n"
-            f"    Ставка: <b>${float(winner['guess']):,.2f}</b> — промахнулся на ${diff:,.2f}\n\n"
-            f"📊 Топ-5 ставок:\n{results_text}{suffix}",
-            parse_mode="HTML",
-        )
+                await self.bot.send_message(
+                    user_id,
+                    f"⏰ Время подошло к концу — <b>{target_time} МСК</b>.\n"
+                    f"💰 Реальная цена BTC: <b>${actual_price:,.2f}</b>\n\n"
+                    f"🏆 Победитель: {display_name}\n"
+                    f"    Ставка: <b>${float(winner['guess']):,.2f}</b> — промахнулся на ${diff:,.2f}\n\n"
+                    f"📊 Топ-5 ставок:\n{results_text}{suffix}",
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                logger.warning(f"Could not send results to {user_id}: {e}")
+                continue
 
     async def reschedule_active_rounds(self):
         """Re-schedule jobs for active rounds after bot restart."""

@@ -34,7 +34,7 @@ class Database:
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS rounds (
                         id INT AUTO_INCREMENT PRIMARY KEY,
-                        chat_id BIGINT NOT NULL,
+                        chat_id BIGINT DEFAULT NULL,
                         target_time VARCHAR(5) NOT NULL,
                         target_datetime DATETIME NOT NULL,
                         actual_price DECIMAL(20, 2) DEFAULT NULL,
@@ -61,7 +61,7 @@ class Database:
 
     # --- Rounds ---
 
-    async def create_round(self, chat_id: int, target_time: str, target_datetime) -> int:
+    async def create_round(self, target_time: str, target_datetime, chat_id: int = None) -> int:
         async with self._pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
@@ -73,12 +73,12 @@ class Database:
                 )
                 return cur.lastrowid
 
-    async def get_active_round(self, chat_id: int):
+    async def get_global_active_round(self):
+        """Return the currently active global round (chat_id is NULL)."""
         async with self._pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT * FROM rounds WHERE chat_id = %s AND is_active = 1 ORDER BY id DESC LIMIT 1",
-                    (chat_id,),
+                    "SELECT * FROM rounds WHERE chat_id IS NULL AND is_active = 1 ORDER BY id DESC LIMIT 1"
                 )
                 return await cur.fetchone()
 
@@ -142,23 +142,9 @@ class Database:
                 )
                 return await cur.fetchall()
 
-    async def get_active_round_by_user(self, user_id: int):
-        """Find any active round where a user participated (for DM support)."""
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(
-                    """
-                    SELECT r.* FROM rounds r
-                    JOIN guesses g ON g.round_id = r.id
-                    WHERE g.user_id = %s AND r.is_active = 1
-                    ORDER BY r.id DESC LIMIT 1
-                    """,
-                    (user_id,),
-                )
-                return await cur.fetchone()
-
     async def get_all_active_rounds(self):
+        """Get all active global rounds (should be 0 or 1)."""
         async with self._pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute("SELECT * FROM rounds WHERE is_active = 1")
+                await cur.execute("SELECT * FROM rounds WHERE is_active = 1 AND chat_id IS NULL")
                 return await cur.fetchall()

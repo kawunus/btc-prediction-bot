@@ -103,12 +103,11 @@ def register_handlers(dp: Dispatcher, db, scheduler):
             return
 
         hour, minute = parsed
-        chat_id = message.chat.id
 
-        existing = await db.get_active_round(chat_id)
+        existing = await db.get_global_active_round()
         if existing:
             await message.reply(
-                f"⚠️ Раунд уже идёт — до {existing['target_time']} МСК.\n"
+                f"⚠️ Глобальный раунд уже идёт — до {existing['target_time']} МСК.\n"
                 "Дождись завершения или используй /cancel."
             )
             return
@@ -116,12 +115,13 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         target_dt = _build_target_datetime(hour, minute)
         time_str = f"{hour:02d}:{minute:02d}"
 
-        round_id = await db.create_round(chat_id, time_str, target_dt)
+        # Create global round (chat_id = NULL)
+        round_id = await db.create_round(time_str, target_dt)
         scheduler.schedule_round_end(round_id, target_dt)
 
         await message.reply(
             f"🎯 Ставки открыты! Угадай цену BTC ровно в <b>{time_str} МСК</b>.\n\n"
-            "Просто напиши число — в чат или в личку боту.\n"
+            "Теперь любой участник в любом чате (где есть бот) или в личку может отправить число.\n"
             "Одна попытка, менять нельзя. Удачи 🍀",
             parse_mode="HTML",
         )
@@ -133,8 +133,7 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if not _is_admin(message.from_user.id):
             return
 
-        chat_id = message.chat.id
-        active = await db.get_active_round(chat_id)
+        active = await db.get_global_active_round()
         if not active:
             await message.reply("Нет активного раунда.")
             return
@@ -146,7 +145,7 @@ def register_handlers(dp: Dispatcher, db, scheduler):
             pass
 
         await db.deactivate_round(active["id"])
-        await message.reply("❌ Раунд отменён. Ставки аннулированы.")
+        await message.reply("❌ Глобальный раунд отменён. Ставки аннулированы.")
 
     # ── /end ───────────────────────────────────────────────────────────────────
 
@@ -155,8 +154,7 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if not _is_admin(message.from_user.id):
             return
 
-        chat_id = message.chat.id
-        active = await db.get_active_round(chat_id)
+        active = await db.get_global_active_round()
         if not active:
             await message.reply("Нет активного раунда.")
             return
@@ -167,28 +165,27 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         except Exception:
             pass
 
-        await message.reply("⏱ Завершаю досрочно, иду за ценой BTC...")
+        await message.reply("⏱ Завершаю глобальный раунд досрочно, иду за ценой BTC...")
         await scheduler._resolve_round(active["id"])
 
     # ── /status ────────────────────────────────────────────────────────────────
 
     @dp.message(Command("status"))
     async def cmd_status(message: Message):
-        chat_id = message.chat.id
-        active = await db.get_active_round(chat_id)
+        active = await db.get_global_active_round()
         if not active:
-            await message.reply("Сейчас раундов нет. Ждём следующего 👀")
+            await message.reply("Сейчас глобального раунда нет. Ждём следующего 👀")
             return
 
         guesses = await db.get_guesses(active["id"])
         count = len(guesses)
         await message.reply(
-            f"⏳ Раунд идёт до <b>{active['target_time']} МСК</b>.\n"
+            f"⏳ Глобальный раунд идёт до <b>{active['target_time']} МСК</b>.\n"
             f"Уже поставили: {count} чел.",
             parse_mode="HTML",
         )
 
-    # ── Обработка ставок (группа или ЛС) ──────────────────────────────────────
+    # ── Обработка ставок (любой чат или ЛС) ──────────────────────────────────────
 
     @dp.message(F.text)
     async def handle_guess(message: Message):
@@ -202,26 +199,15 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         if price is None:
             return
 
-        is_private = message.chat.type == "private"
-
-        if is_private:
-            active = await db.get_active_round_by_user(user.id)
-            if not active:
-                rounds = await db.get_all_active_rounds()
-                if len(rounds) == 1:
-                    active = rounds[0]
-                elif len(rounds) > 1:
-                    await message.reply(
-                        "Активных раундов несколько — напиши ставку прямо в нужный чат."
-                    )
-                    return
-                else:
-                    await message.reply("Сейчас нет активных раундов 🤷")
-                    return
-        else:
-            active = await db.get_active_round(message.chat.id)
-            if not active:
-                return
+        # Always use the global active round
+        active = await db.get_global_active_round()
+        if not active:
+            # No active round — gentle reminder
+            await message.reply(
+                "Сейчас нет активного раунда 🤷\n"
+                "Когда админ запустит игру, просто отправь сюда число."
+            )
+            return
 
         success = await db.add_guess(
             round_id=active["id"],
