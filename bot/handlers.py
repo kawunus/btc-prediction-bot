@@ -10,20 +10,23 @@ from aiogram.types import Message
 
 logger = logging.getLogger(__name__)
 
-OWNER_ID = int(os.environ["OWNER_ID"])
 MSK = pytz.timezone("Europe/Moscow")
 
-# Support multiple admins: ADMIN_IDS=123456,789012 (OWNER_ID is always included)
-def _load_admin_ids() -> set[int]:
-    ids = {OWNER_ID}
-    raw = os.environ.get("ADMIN_IDS", "")
+# Admins list from ADMINS env var (comma‑separated), first one is main owner.
+def _load_admins() -> tuple[set[int], int]:
+    raw = os.environ.get("ADMINS", "").strip()
+    if not raw:
+        raise ValueError("ADMINS environment variable is required (comma‑separated Telegram user IDs)")
+    ids = []
     for part in raw.split(","):
         part = part.strip()
         if part.isdigit():
-            ids.add(int(part))
-    return ids
+            ids.append(int(part))
+    if not ids:
+        raise ValueError("ADMINS must contain at least one numeric ID")
+    return set(ids), ids[0]  # all admins, main owner
 
-ADMIN_IDS = _load_admin_ids()
+ADMIN_IDS, OWNER_ID = _load_admins()
 
 
 def _is_admin(user_id: int) -> bool:

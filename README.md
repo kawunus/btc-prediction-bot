@@ -30,7 +30,7 @@ docker compose up -d --build
 ## Настройка .env
 
 - `BOT_TOKEN` — токен от @BotFather
-- `OWNER_ID` — твой Telegram user ID (можно узнать у @userinfobot)
+- `ADMINS` — ID владельцев через запятую (первый — главный), можно один
 - Остальное — параметры базы данных
 
 ## Заметки
