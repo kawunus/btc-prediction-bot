@@ -28,6 +28,11 @@ def _load_admins() -> tuple[set[int], int]:
 
 ADMIN_IDS, OWNER_ID = _load_admins()
 
+# Дедлайны приёма ставок по раундам (только в памяти процесса, без БД).
+# {round_id: datetime(MSK)} — после этого времени ставки не принимаются,
+# но итоги всё равно подводятся в target_time раунда.
+_reg_deadlines: dict[int, datetime] = {}
+
 
 def _is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
@@ -194,6 +199,46 @@ def register_handlers(dp: Dispatcher, db, scheduler):
         await message.reply("⏱ Завершаю глобальный раунд досрочно, иду за ценой BTC...")
         await scheduler._resolve_round(active["id"])
 
+    # ── /end_reg HH:MM ──────────────────────────────────────────────────────────
+
+    @dp.message(Command("end_reg"))
+    async def cmd_end_reg(message: Message):
+        if not _is_admin(message.from_user.id):
+            return
+
+        active = await db.get_global_active_round()
+        if not active:
+            await message.reply("Нет активного раунда.")
+            return
+
+        args = (message.text or "").split(maxsplit=1)
+        if len(args) < 2:
+            await message.reply("Укажи время окончания приёма ставок: /end_reg HH:MM\nПример: /end_reg 19:00")
+            return
+
+        parsed = _parse_time(args[1])
+        if not parsed:
+            await message.reply("Неверный формат времени. Пример: /end_reg 19:00")
+            return
+
+        hour, minute = parsed
+        deadline = _build_target_datetime(hour, minute)
+        # Дедлайн приёма не может быть позже подведения итогов.
+        target_dt = MSK.localize(active["target_datetime"]) if active["target_datetime"].tzinfo is None else active["target_datetime"]
+        if deadline > target_dt:
+            await message.reply(
+                f"⚠️ Приём ставок ({hour:02d}:{minute:02d}) не может быть позже подведения итогов "
+                f"({active['target_time']} МСК)."
+            )
+            return
+
+        _reg_deadlines[active["id"]] = deadline
+        await message.reply(
+            f"✅ Приём ставок закрывается в <b>{hour:02d}:{minute:02d} МСК</b>.\n"
+            f"Итоги по-прежнему в <b>{active['target_time']} МСК</b>.",
+            parse_mode="HTML",
+        )
+
     # ── /status ────────────────────────────────────────────────────────────────
 
     @dp.message(Command("status"))
@@ -234,6 +279,16 @@ def register_handlers(dp: Dispatcher, db, scheduler):
             await message.reply(
                 "Сейчас нет активного раунда 🤷\n"
                 "Когда админ запустит игру, просто отправь сюда число."
+            )
+            return
+
+        # Приём ставок закрыт, но итоги ещё не подведены
+        deadline = _reg_deadlines.get(active["id"])
+        if deadline is not None and datetime.now(MSK) >= deadline:
+            await message.reply(
+                f"⏰ Приём ставок уже закрыт ({deadline.strftime('%H:%M')} МСК).\n"
+                f"Итоги розыгрыша будут в <b>{active['target_time']} МСК</b>.",
+                parse_mode="HTML",
             )
             return
 
